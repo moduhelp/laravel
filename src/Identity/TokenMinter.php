@@ -3,6 +3,7 @@
 namespace ModuHelp\Laravel\Identity;
 
 use Illuminate\Support\Facades\Validator;
+use Stringable;
 use Throwable;
 
 /**
@@ -17,6 +18,10 @@ use Throwable;
  */
 final class TokenMinter
 {
+    public const MIN_TTL = 60;
+
+    public const MAX_TTL = 86400;
+
     public const MAX_LENGTH = 4096;
 
     public const MAX_ATTRS = 10;
@@ -31,11 +36,15 @@ final class TokenMinter
 
     private const JSON_FLAGS = JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR;
 
+    private readonly int $ttl;
+
     public function __construct(
         private readonly string $widgetKey,
         private readonly string $secret,
-        private readonly int $ttl,
-    ) {}
+        int $ttl,
+    ) {
+        $this->ttl = max(self::MIN_TTL, min(self::MAX_TTL, $ttl));
+    }
 
     /**
      * @param  array<string, mixed>  $claims  email, name, uid, attrs (any type)
@@ -114,7 +123,19 @@ final class TokenMinter
 
     private function name(mixed $value): ?string
     {
-        return is_scalar($value) ? $this->line((string) $value, self::MAX_NAME_LENGTH) : null;
+        if ($value instanceof Stringable) {
+            $value = (string) $value;
+        }
+
+        if (is_float($value) && ! is_finite($value)) {
+            return null;
+        }
+
+        if (! is_string($value) && ! is_int($value) && ! is_float($value)) {
+            return null;
+        }
+
+        return $this->line((string) $value, self::MAX_NAME_LENGTH);
     }
 
     private function uid(mixed $value): string|int|null
@@ -164,7 +185,11 @@ final class TokenMinter
                 continue;
             }
 
-            if (is_string($item) && mb_strlen($item) > self::MAX_ATTR_STRING_LENGTH) {
+            if (is_float($item) && ! is_finite($item)) {
+                continue;
+            }
+
+            if (is_string($item) && (! mb_check_encoding($item, 'UTF-8') || mb_strlen($item) > self::MAX_ATTR_STRING_LENGTH)) {
                 continue;
             }
 

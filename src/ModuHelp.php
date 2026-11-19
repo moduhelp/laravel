@@ -24,6 +24,8 @@ class ModuHelp
 
     private const DEFAULT_TTL = 43200;
 
+    private const DEFAULT_ORIGIN = 'https://app.moduhelp.com';
+
     private ?Closure $identify = null;
 
     private ?Closure $showWhen = null;
@@ -90,10 +92,10 @@ class ModuHelp
 
     public function token(?Authenticatable $user = null): ?string
     {
-        $widgetKey = $this->config->get('moduhelp.widget_key');
+        $widgetKey = $this->widgetKey();
         $secret = $this->config->get('moduhelp.identity_secret');
 
-        if (! $this->enabled() || ! is_string($secret) || trim($secret) === '') {
+        if ($widgetKey === null || ! is_string($secret) || trim($secret) === '') {
             return null;
         }
 
@@ -134,7 +136,7 @@ class ModuHelp
             $token = $this->token($this->user());
 
             $html = view('moduhelp::widget', [
-                'key' => $this->config->get('moduhelp.widget_key'),
+                'key' => $this->widgetKey(),
                 'origin' => $this->origin(),
                 'token' => $token,
                 'nonce' => $this->nonce($request),
@@ -176,20 +178,32 @@ class ModuHelp
 
     public function enabled(): bool
     {
+        return $this->widgetKey() !== null;
+    }
+
+    /** The one trimmed reading of the key, shared by enabled(), the token claim and the markup. */
+    private function widgetKey(): ?string
+    {
         $key = $this->config->get('moduhelp.widget_key');
 
-        return is_string($key) && trim($key) !== '';
+        if (! is_string($key) || trim($key) === '') {
+            return null;
+        }
+
+        return trim($key);
     }
 
     public function origin(): string
     {
         $origin = $this->config->get('moduhelp.origin');
+        $origin = is_string($origin) ? trim($origin) : '';
 
-        if (! is_string($origin) || trim($origin) === '') {
-            $origin = 'https://app.moduhelp.com';
+        // Absolute http(s) with a host, and nothing that could break out of an attribute.
+        if (preg_match('#^https?://[^\\s"\'`<>/\\\\?\\#][^\\s"\'`<>\\\\]*$#i', $origin) !== 1) {
+            return self::DEFAULT_ORIGIN;
         }
 
-        return rtrim(trim($origin), '/');
+        return rtrim($origin, '/');
     }
 
     public function ttl(): int

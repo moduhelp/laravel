@@ -126,10 +126,50 @@ test('multibyte name with emoji and 10 long multibyte attrs still yields a token
         ->and(decoded($token))->not->toHaveKey('attrs');
 });
 
-test('returns null on invalid utf-8 and on NAN', function () {
+test('returns null on an invalid utf-8 name', function () {
     expect(mintWith(['name' => "\xB1\x31"]))->toBeNull();
-    expect(mintWith(['attrs' => ['x' => NAN]]))->toBeNull();
 });
+
+test('drops a non-finite or invalid utf-8 attr and keeps the rest', function (mixed $bad) {
+    $token = mintWith(['attrs' => ['bad' => $bad, 'plan' => 'pro', 'seats' => 3]]);
+
+    expect($token)->not->toBeNull()
+        ->and(decoded($token)['attrs'])->toBe(['plan' => 'pro', 'seats' => 3]);
+})->with([
+    'nan' => [NAN],
+    'inf' => [INF],
+    'negative inf' => [-INF],
+    'invalid utf-8' => ["\xB1\x31"],
+]);
+
+test('clamps the ttl in the constructor', function (int $ttl, int $expected) {
+    $token = (new TokenMinter('wk_test', 'mis_test_secret', $ttl))->mint(['email' => 'ana@example.com']);
+
+    expect(decoded($token)['exp'] - Carbon::now()->getTimestamp())->toBe($expected);
+})->with([[0, 60], [-5, 60], [600, 600], [999999, 86400]]);
+
+test('casts strings, ints, floats and stringables to a name and omits everything else', function (mixed $name, ?string $expected) {
+    $decoded = decoded(mintWith(['name' => $name]));
+
+    expect($decoded['name'] ?? null)->toBe($expected);
+})->with([
+    'string' => ['Ana', 'Ana'],
+    'int' => [42, '42'],
+    'float' => [1.5, '1.5'],
+    'stringable' => [new class
+    {
+        public function __toString(): string
+        {
+            return 'Ana S';
+        }
+    }, 'Ana S'],
+    'true' => [true, null],
+    'false' => [false, null],
+    'null' => [null, null],
+    'array' => [['x'], null],
+    'object' => [new stdClass, null],
+    'nan' => [NAN, null],
+]);
 
 test('exp is now plus ttl and the token has the contract shape', function () {
     $token = mintWith(['name' => 'Ana']);
