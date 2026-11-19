@@ -2,14 +2,21 @@
 
 namespace ModuHelp\Laravel\View\Components;
 
-use Closure;
+use Illuminate\Support\HtmlString;
 use Illuminate\View\Component;
 use ModuHelp\Laravel\Facades\ModuHelp;
 
 class Widget extends Component
 {
-    public function render(): Closure
+    /**
+     * A string (or a Closure returning one) would be compiled as Blade source,
+     * which writes the per-user token to the compiled views directory and
+     * evaluates template syntax in config values. A returned Htmlable is used
+     * as is. Component::resolveView() runs at render time, so the request is
+     * the live one.
+     */
+    public function render(): HtmlString
     {
-        return fn () => ModuHelp::render(request()) ?? '';
+        return new HtmlString(ModuHelp::render(request()) ?? '');
     }
 }

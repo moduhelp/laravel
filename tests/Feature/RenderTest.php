@@ -104,3 +104,33 @@ it('component renders the same markup and respects skip', function () {
 
     expect((string) $this->blade('<x-moduhelp::widget />'))->not->toContain('moduhelp-widget');
 });
+
+function compiledViewFiles(): array
+{
+    return glob(rtrim(config('view.compiled'), '/').'/*.php') ?: [];
+}
+
+it('component writes no per-user html to the compiled views directory', function () {
+    array_map('unlink', compiledViewFiles());
+    $this->freezeTime();
+    $this->actingAs(renderUser());
+    $this->app->instance('request', Request::create('/'));
+    $token = ModuHelp::token(renderUser());
+
+    $this->blade('<x-moduhelp::widget />');
+    $this->blade('<x-moduhelp::widget />');
+
+    $leaks = array_filter(compiledViewFiles(), fn ($file) => str_contains(file_get_contents($file), explode('.', $token)[0]));
+
+    expect($leaks)->toBe([]);
+});
+
+it('component does not evaluate blade syntax in config values', function () {
+    config()->set('moduhelp.widget_key', 'k{{ 6*7 }}');
+    $this->actingAs(renderUser());
+    $this->app->instance('request', Request::create('/'));
+
+    $html = (string) $this->blade('<x-moduhelp::widget />');
+
+    expect($html)->not->toContain('k42')->toContain('content="k{{ 6*7 }}"');
+});
