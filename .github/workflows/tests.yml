@@ -41,9 +41,10 @@ jobs:
           coverage: none
 
       # Every laravel/framework 11.x release is currently flagged by Composer's
-      # security advisories, so resolution fails unless blocking is off. This
-      # only affects the dev dependencies of this test job.
+      # security advisories, so resolution fails unless blocking is off. Only
+      # the Laravel 11 cells need this, and only for their dev dependencies.
       - name: Allow advisory-flagged dev dependencies
+        if: matrix.laravel == '11.*'
         run: composer config audit.block-insecure false
 
       - name: Select Laravel version
