@@ -7,6 +7,7 @@ use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\View;
 use ModuHelp\Laravel\Facades\ModuHelp;
 use ModuHelp\Laravel\Http\Middleware\InjectWidget;
 use ModuHelp\Laravel\ModuHelp as Manager;
@@ -407,4 +408,14 @@ it('still injects when MODUHELP_INJECT is set but blank', function () {
     pageRoute();
 
     expect(substr_count($this->get('/page')->getContent(), MARKER))->toBe(1);
+});
+
+it('keeps the original view on the response after injecting', function () {
+    View::addNamespace('fixtures', __DIR__.'/../Fixtures/views');
+    pageRoute(fn () => view('fixtures::page', ['greeting' => 'hi']));
+
+    $response = $this->get('/page');
+
+    expect(substr_count($response->getContent(), MARKER))->toBe(1);
+    $response->assertViewIs('fixtures::page')->assertViewHas('greeting', 'hi');
 });
