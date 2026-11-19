@@ -11,6 +11,7 @@ function renderUser(): TestUser
 
 it('renders both metas and the bootstrap', function () {
     $this->actingAs(renderUser());
+    $this->freezeTime();
 
     $html = ModuHelp::render(Request::create('/'));
     $token = ModuHelp::token(renderUser());
