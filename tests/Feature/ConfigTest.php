@@ -75,3 +75,21 @@ it('uses the trimmed widget key everywhere', function () {
         ->and($claims['k'])->toBe('wk_test')
         ->and($html)->toContain('content="wk_test"');
 });
+
+it('reads the inject flag with blank meaning the default', function ($in, $out) {
+    config()->set('moduhelp.inject', $in);
+
+    expect(ModuHelp::injects())->toBe($out);
+})->with([
+    'unset' => [null, true],
+    'blank' => ['', true],
+    'whitespace' => ['  ', true],
+    'true' => [true, true],
+    'false' => [false, false],
+    'string false' => ['false', false],
+    'string off' => ['off', false],
+    'string zero' => ['0', false],
+    'int zero' => [0, false],
+    'string one' => ['1', true],
+    'unrecognised' => ['maybe', true],
+]);

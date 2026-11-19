@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.1
+
+- Fix: a blank `MODUHELP_INJECT=` line in `.env` silently turned auto-injection off, because Laravel reads it as an empty string. Unset, blank or unrecognised values now keep injection on; only `false`, `off`, `no` or `0` turn it off. New `ModuHelp::injects()` reports the effective value.
+
 ## 0.1.0
 
 - Automatic injection of the ModuHelp widget into full HTML pages of the `web` middleware group, with conservative rules that leave Livewire updates, JSON, downloads, streamed responses, redirects and publicly cacheable pages untouched.

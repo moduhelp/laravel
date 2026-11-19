@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Facade;
  * @method static bool enabled()
  * @method static string origin()
  * @method static int ttl()
+ * @method static bool injects()
  * @method static void identifyUsing(Closure $fn)
  * @method static void showWhen(Closure $fn)
  * @method static void nonceUsing(Closure $fn)

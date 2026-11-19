@@ -47,7 +47,7 @@ class InjectWidget
     {
         // Read per request: the middleware is registered whenever the package is
         // enabled, because it also hardens pages the component identified.
-        if (! config('moduhelp.inject')) {
+        if (! $this->moduHelp->injects()) {
             return false;
         }
 

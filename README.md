@@ -35,7 +35,7 @@ php artisan vendor:publish --tag=moduhelp-config
 | `MODUHELP_WIDGET_KEY` | `widget_key` | none | Public value. Blank means the package is fully inert. |
 | `MODUHELP_IDENTITY_SECRET` | `identity_secret` | none | Signs identity tokens. Never rendered. Blank means the widget is shown anonymously. |
 | `MODUHELP_ORIGIN` | `origin` | `https://app.moduhelp.com` | Where the widget is served from. Must be an absolute `http://` or `https://` URL; a blank or invalid value falls back to the default. A trailing slash is trimmed. |
-| `MODUHELP_INJECT` | `inject` | `true` | Turns automatic injection on or off. Off stops injection only; the cache protection for pages that carry a token stays on (see Caching). |
+| `MODUHELP_INJECT` | `inject` | `true` | Turns automatic injection on or off. Off stops injection only; the cache protection for pages that carry a token stays on (see Caching). Only `false`, `off`, `no` or `0` turn it off; unset or blank keeps it on. |
 | `MODUHELP_TOKEN_TTL` | `token_ttl` | `43200` | Token lifetime in seconds. Clamped to 60 through 86400; a non-numeric value falls back to the default. |
 | `MODUHELP_GUARD` | `guard` | default guard | Auth guard used to find the user. |
 | none | `except` | `horizon*`, `telescope*`, `pulse*`, `_debugbar*`, `livewire/*`, `livewire-*` | Request path patterns (`Request::is`) that never get the widget. |
