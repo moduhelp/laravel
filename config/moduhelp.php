@@ -20,6 +20,7 @@ return [
 
     /*
     | Automatically inject the widget into HTML pages of the "web" group.
+    | False turns off injection only; pages that carry a token are still hardened.
     */
     'inject' => env('MODUHELP_INJECT', true),
 
@@ -42,6 +43,7 @@ return [
         'pulse*',
         '_debugbar*',
         'livewire/*',
+        'livewire-*',
     ],
 
 ];

@@ -166,7 +166,8 @@ it('carries no token after logout in the same process', function () {
 
     Auth::logout();
 
-    expect(ModuHelp::token(ModuHelp::user()))->toBeNull();
+    expect(ModuHelp::token(ModuHelp::user()))->toBeNull()
+        ->and(ModuHelp::token())->toBeNull();
 });
 
 it('user never throws on a misconfigured guard', function () {

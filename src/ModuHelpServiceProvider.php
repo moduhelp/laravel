@@ -37,17 +37,24 @@ class ModuHelpServiceProvider extends ServiceProvider
      * (Router::pushMiddlewareToGroup does not) and works with both the
      * bootstrap/app.php style and a legacy App\Http\Kernel. It throws when
      * the app has no "web" group, which must never break the host.
+     *
+     * The middleware is registered whenever the package is enabled, whatever
+     * moduhelp.inject says: that flag is read per request and only decides
+     * whether it injects. Registration waits for the HTTP kernel to be resolved,
+     * so console and queue processes never build it.
      */
     private function registerMiddleware(): void
     {
-        if (! config('moduhelp.inject') || ! $this->app->make(ModuHelp::class)->enabled()) {
-            return;
-        }
+        $this->callAfterResolving(Kernel::class, function (Kernel $kernel): void {
+            try {
+                if (! $this->app->make(ModuHelp::class)->enabled()) {
+                    return;
+                }
 
-        try {
-            $this->app->make(Kernel::class)->appendMiddlewareToGroup('web', InjectWidget::class);
-        } catch (Throwable $e) {
-            report($e);
-        }
+                $kernel->appendMiddlewareToGroup('web', InjectWidget::class);
+            } catch (Throwable $e) {
+                report($e);
+            }
+        });
     }
 }

@@ -2,10 +2,13 @@
 
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Exceptions;
 use Illuminate\Support\Facades\Route;
 use ModuHelp\Laravel\Facades\ModuHelp;
+use ModuHelp\Laravel\Http\Middleware\InjectWidget;
 use ModuHelp\Laravel\ModuHelp as Manager;
 use ModuHelp\Laravel\Tests\Fixtures\TestUser;
 use ModuHelp\Laravel\Tests\Fixtures\ThrowingModuHelp;
@@ -100,11 +103,18 @@ it('skips POST', function () {
 });
 
 it('skips HEAD', function () {
-    pageRoute();
+    // The router empties the body of a HEAD response before middleware sees it,
+    // so the rule is exercised by calling the middleware directly.
+    $request = Request::create('/page', 'HEAD');
+    $request->setUserResolver(fn () => signedIn());
+    $original = new Response(PAGE, 200, ['Content-Type' => 'text/html', 'ETag' => '"abc"']);
 
-    $response = $this->call('HEAD', '/page');
+    $result = app(InjectWidget::class)->handle($request, fn () => $original);
 
-    expect($response->getContent())->toBe('');
+    expect($result)->toBe($original)
+        ->and($result->getContent())->toBe(PAGE)
+        ->and($result->headers->get('ETag'))->toBe('"abc"')
+        ->and($result->headers->get('Cache-Control'))->not->toContain('no-store');
 });
 
 it('skips a guest', function () {
@@ -166,9 +176,13 @@ it('skips a file download', function () {
     pageRoute(fn () => response()->download($path, 'page.html', ['Content-Type' => 'text/html']));
 
     $response = $this->get('/page');
+    $base = $response->baseResponse;
 
-    expect(file_get_contents($response->baseResponse->getFile()->getPathname()))->toBe(PAGE)
-        ->and($response->baseResponse)->toBeInstanceOf(BinaryFileResponse::class);
+    expect(file_get_contents($base->getFile()->getPathname()))->toBe(PAGE)
+        ->and($base)->toBeInstanceOf(BinaryFileResponse::class)
+        ->and($base->headers->get('Content-Disposition'))->toContain('attachment')->toContain('page.html')
+        ->and($base->headers->get('Cache-Control'))->not->toContain('no-store')
+        ->and($base->headers->get('Content-Length'))->toBe((string) strlen(PAGE));
 
     @unlink($path);
 });
@@ -267,4 +281,123 @@ it('carries no token on a request after logout in the same process', function ()
         ->and(identityMeta($second->getContent()))->toBe('')
         ->and($second->headers->get('ETag'))->toBe('"abc"')
         ->and($second->headers->get('Cache-Control'))->not->toContain('no-store');
+});
+
+it('skips a string body marked as an attachment', function (string $disposition) {
+    pageRoute(fn () => response(PAGE, 200, [
+        'Content-Disposition' => $disposition,
+        'Content-Length' => (string) strlen(PAGE),
+        'ETag' => '"abc"',
+    ]));
+
+    $response = $this->get('/page');
+
+    expect($response->getContent())->toBe(PAGE)
+        ->and($response->headers->get('Content-Disposition'))->toBe($disposition)
+        ->and($response->headers->get('Content-Length'))->toBe((string) strlen(PAGE))
+        ->and($response->headers->get('ETag'))->toBe('"abc"')
+        ->and($response->headers->get('Cache-Control'))->not->toContain('no-store');
+})->with(['attachment; filename="p.html"', 'ATTACHMENT', 'Attachment;filename=p.html']);
+
+it('still injects an inline content disposition', function () {
+    pageRoute(fn () => response(PAGE, 200, ['Content-Disposition' => 'inline']));
+
+    expect($this->get('/page')->getContent())->toContain(MARKER);
+});
+
+it('does not inject twice when the marker is single quoted, unquoted or upper case', function (string $meta) {
+    $page = '<html><head>'.$meta.'</head><body></body></html>';
+    pageRoute(fn () => response($page));
+
+    expect($this->get('/page')->getContent())->toBe($page);
+})->with([
+    "<meta name='moduhelp-widget' content='x'>",
+    '<meta name=moduhelp-widget content=x>',
+    '<META NAME="MODUHELP-WIDGET" CONTENT="x">',
+    '<meta content="x" name = "moduhelp-widget">',
+]);
+
+it('does not mistake the bootstrap selector text for the marker', function () {
+    $page = '<html><head><script>d.querySelector(\'meta[name="moduhelp-widget"]\')</script></head><body></body></html>';
+    pageRoute(fn () => response($page));
+
+    expect($this->get('/page')->getContent())->toContain(MARKER);
+});
+
+it('injects before the real </head> when a script in the head contains the text', function () {
+    $page = "<html><head><script>var a='</head>'</script><title>x</title></head><body><p></head></p></body></html>";
+    pageRoute(fn () => response($page));
+
+    $body = $this->get('/page')->getContent();
+
+    expect(substr_count($body, MARKER))->toBe(1)
+        ->and($body)->toStartWith("<html><head><script>var a='</head>'</script><title>x</title><meta name=\"moduhelp-widget\"")
+        ->and($body)->toEndWith('</head><body><p></head></p></body></html>');
+});
+
+it('does not inject when </head> only appears after the body starts', function () {
+    $page = '<html><body><p></head></p></body></html>';
+    pageRoute(fn () => response($page));
+
+    expect($this->get('/page')->getContent())->toBe($page);
+});
+
+it('skips the livewire-* except entry used by Livewire 4', function () {
+    pageRoute(uri: 'livewire-abc123/preview-file/x');
+
+    expect($this->get('/livewire-abc123/preview-file/x')->getContent())->toBe(PAGE);
+});
+
+it('hardens a component page that is publicly cacheable and injects nothing extra', function () {
+    pageRoute(fn () => response(
+        Blade::render('<html><head><x-moduhelp::widget /></head><body>hi</body></html>'),
+        200,
+        ['Cache-Control' => 'public, max-age=600', 'ETag' => '"abc"', 'Last-Modified' => 'Wed, 21 Oct 2015 07:28:00 GMT'],
+    ));
+
+    $response = $this->get('/page');
+    $cache = $response->headers->get('Cache-Control');
+
+    expect(substr_count($response->getContent(), MARKER))->toBe(1)
+        ->and($cache)->toContain('private')->toContain('no-store')->not->toContain('public')->not->toContain('max-age')
+        ->and($response->headers->has('ETag'))->toBeFalse()
+        ->and($response->headers->has('Last-Modified'))->toBeFalse();
+});
+
+it('leaves headers of an anonymous component page alone', function () {
+    config()->set('moduhelp.identity_secret', null);
+    pageRoute(fn () => response(
+        Blade::render('<html><head><x-moduhelp::widget /></head><body>hi</body></html>'),
+        200,
+        ['Cache-Control' => 'public, max-age=600', 'ETag' => '"abc"'],
+    ));
+
+    $response = $this->get('/page');
+
+    expect(substr_count($response->getContent(), MARKER))->toBe(1)
+        ->and($response->headers->get('Cache-Control'))->toContain('public')->toContain('max-age=600')
+        ->and($response->headers->get('ETag'))->toBe('"abc"');
+});
+
+it('keeps Content-Length when the middleware only hardened a component page', function () {
+    $html = Blade::render('<html><head><x-moduhelp::widget /></head><body>hi</body></html>');
+    pageRoute(fn () => response($html, 200, ['Content-Length' => (string) strlen($html)]));
+
+    $response = $this->get('/page');
+
+    expect($response->headers->get('Content-Length'))->toBe((string) strlen($html));
+});
+
+it('gives each user in the same process their own token', function () {
+    pageRoute();
+
+    $a = $this->get('/page')->getContent();
+
+    $this->actingAs(new TestUser(['id' => 9, 'email' => 'bob@example.com', 'name' => 'Bob']));
+    $b = $this->get('/page')->getContent();
+
+    $emailOf = fn (string $html) => json_decode(base64_decode(strtr(explode('.', identityMeta($html))[0], '-_', '+/')), true)['email'];
+
+    expect($emailOf($a))->toBe('ana@example.com')
+        ->and($emailOf($b))->toBe('bob@example.com');
 });
