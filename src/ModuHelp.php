@@ -206,6 +206,26 @@ class ModuHelp
         return rtrim($origin, '/');
     }
 
+    /**
+     * Whether auto-injection is on. Unset, blank or unrecognised values mean the
+     * default (on): a bare `MODUHELP_INJECT=` line in .env reaches config as an
+     * empty string, which must not silently turn the widget off.
+     */
+    public function injects(): bool
+    {
+        $value = $this->config->get('moduhelp.inject');
+
+        if (is_bool($value)) {
+            return $value;
+        }
+
+        if ($value === null || (is_string($value) && trim($value) === '')) {
+            return true;
+        }
+
+        return filter_var($value, FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE) ?? true;
+    }
+
     public function ttl(): int
     {
         $ttl = $this->config->get('moduhelp.token_ttl');

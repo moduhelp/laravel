@@ -401,3 +401,10 @@ it('gives each user in the same process their own token', function () {
     expect($emailOf($a))->toBe('ana@example.com')
         ->and($emailOf($b))->toBe('bob@example.com');
 });
+
+it('still injects when MODUHELP_INJECT is set but blank', function () {
+    config()->set('moduhelp.inject', '');
+    pageRoute();
+
+    expect(substr_count($this->get('/page')->getContent(), MARKER))->toBe(1);
+});
