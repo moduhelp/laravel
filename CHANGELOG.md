@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.2
+
+- Fix: injecting the widget replaced the response's original View with the HTML string, so `assertViewHas()`, `viewData()` and any later middleware reading the view broke on injected pages. The original is now kept.
+
 ## 0.1.1
 
 - Fix: a blank `MODUHELP_INJECT=` line in `.env` silently turned auto-injection off, because Laravel reads it as an empty string. Unset, blank or unrecognised values now keep injection on; only `false`, `off`, `no` or `0` turn it off. New `ModuHelp::injects()` reports the effective value.

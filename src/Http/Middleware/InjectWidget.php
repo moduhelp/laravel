@@ -71,8 +71,14 @@ class InjectWidget
         // Compute first, mutate last, so a failure leaves the original intact.
         $injected = substr($content, 0, $position).$html.substr($content, $position);
 
+        // setContent() overwrites $original with the string. Keep the View (or
+        // whatever the route returned) so assertViewHas(), viewData() and later
+        // middleware still see it. Livewire's asset injection does the same.
+        $original = $response->original;
+
         $response->headers->remove('Content-Length');
         $response->setContent($injected);
+        $response->original = $original;
 
         return true;
     }
