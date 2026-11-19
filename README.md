@@ -34,25 +34,25 @@ php artisan vendor:publish --tag=moduhelp-config
 |---|---|---|---|
 | `MODUHELP_WIDGET_KEY` | `widget_key` | none | Public value. Blank means the package is fully inert. |
 | `MODUHELP_IDENTITY_SECRET` | `identity_secret` | none | Signs identity tokens. Never rendered. Blank means the widget is shown anonymously. |
-| `MODUHELP_ORIGIN` | `origin` | `https://app.moduhelp.com` | Where the widget is served from. A trailing slash is trimmed. |
-| `MODUHELP_INJECT` | `inject` | `true` | Turns automatic injection on or off. |
-| `MODUHELP_TOKEN_TTL` | `token_ttl` | `43200` | Token lifetime in seconds. Clamped to 60 through 86400. |
+| `MODUHELP_ORIGIN` | `origin` | `https://app.moduhelp.com` | Where the widget is served from. Must be an absolute `http://` or `https://` URL; a blank or invalid value falls back to the default. A trailing slash is trimmed. |
+| `MODUHELP_INJECT` | `inject` | `true` | Turns automatic injection on or off. Off stops injection only; the cache protection for pages that carry a token stays on (see Caching). |
+| `MODUHELP_TOKEN_TTL` | `token_ttl` | `43200` | Token lifetime in seconds. Clamped to 60 through 86400; a non-numeric value falls back to the default. |
 | `MODUHELP_GUARD` | `guard` | default guard | Auth guard used to find the user. |
-| none | `except` | `horizon*`, `telescope*`, `pulse*`, `_debugbar*`, `livewire/*` | Request path patterns (`Request::is`) that never get the widget. |
+| none | `except` | `horizon*`, `telescope*`, `pulse*`, `_debugbar*`, `livewire/*`, `livewire-*` | Request path patterns (`Request::is`) that never get the widget. |
 
 ## How automatic injection decides
 
-The package appends a middleware to the `web` group. It inserts the widget before the first `</head>` of the response, and only when all of these hold:
+The package appends a middleware to the `web` group. It inserts the widget before the last `</head>` that comes before the first `<body` (a `</head>` inside a head script is skipped), and only when `MODUHELP_INJECT` is on and all of these hold:
 
 - The request is a `GET`, is not an AJAX request, carries no `X-Livewire` header, its path does not match `except`, and `ModuHelp::skip()` was not called.
-- The response is a plain, non-streamed response with status 200, a `Content-Type` starting with `text/html`, and no `Content-Encoding`.
+- The response is a plain, non-streamed response with status 200, a `Content-Type` starting with `text/html`, no `Content-Encoding`, and no `Content-Disposition: attachment`.
 - The response is not publicly cacheable: its `Cache-Control` has neither `public` nor `s-maxage`.
-- The body contains `</head>` and does not already contain the widget (for example because you placed the component yourself).
+- The body has a `</head>` to insert before and does not already contain the widget's `<meta name="moduhelp-widget">` (for example because you placed the component yourself).
 - The `showWhen` check passes (see below).
 
 It never touches Livewire update requests, JSON, redirects, downloads, streamed responses, error pages, or non-GET requests. Requests made by `wire:navigate` are injected, because their response becomes the next page. If anything inside the package throws, the exception is reported and the original response is returned unchanged.
 
-If the app has no `web` middleware group, nothing is registered and nothing breaks.
+The middleware is registered when the HTTP kernel is first resolved, so console and queue processes never build it. If the app has no `web` middleware group, nothing is registered and nothing breaks.
 
 ## Who sees the widget
 
@@ -118,31 +118,49 @@ When the secret is blank, there is no signed-in user, or the email is unusable, 
 
 ## Content Security Policy
 
-The package does not change your CSP headers. If you send a CSP, two things need wiring.
+The package does not send or change any CSP header. If your app sends one, the widget needs three things from it.
 
-Nonce: the inline bootstrap script gets a nonce from `Vite::cspNonce()` by default. If you use another nonce source, register it:
+Origin: `ModuHelp::origin()` must be allowed in `script-src`, `connect-src` and `frame-src`.
+
+Nonce: the package's inline bootstrap script is blocked unless it carries a nonce your policy accepts (or your policy already allows inline scripts). By default the nonce comes from `Vite::cspNonce()`, which returns `null` unless your app calls `Vite::useCspNonce()`, so without that call the script has no nonce. If your nonce comes from somewhere else, register it:
 
 ```php
 ModuHelp::nonceUsing(fn (Request $request): ?string => $request->attributes->get('csp_nonce'));
 ```
 
-Origin: allow `ModuHelp::origin()` in `script-src`, `connect-src` and `frame-src`. To open the policy only on pages that carry the widget, check `ModuHelp::renderedOn($request)` after the response has been produced:
+The example below is a sketch of your own policy, not a replacement for it. It builds your complete policy in one place, with the nonce and the ModuHelp origin added only on pages where the widget was rendered. Keep your own directives and values; the ones shown are placeholders.
 
 ```php
+<?php
+
+namespace App\Http\Middleware;
+
 use Closure;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Vite;
 use ModuHelp\Laravel\Facades\ModuHelp;
+use Symfony\Component\HttpFoundation\Response;
 
 class SecurityHeaders
 {
-    public function handle(Request $request, Closure $next)
+    public function handle(Request $request, Closure $next): Response
     {
+        // Must run before the view renders so Vite and the widget share one nonce.
+        Vite::useCspNonce();
+
         $response = $next($request);
 
+        $nonce = Vite::cspNonce();
         $origin = ModuHelp::renderedOn($request) ? ' '.ModuHelp::origin() : '';
 
-        $response->headers->set('Content-Security-Policy',
-            "script-src 'self'{$origin}; connect-src 'self'{$origin}; frame-src 'self'{$origin}");
+        $response->headers->set('Content-Security-Policy', implode('; ', [
+            "default-src 'self'",
+            "script-src 'self' 'nonce-{$nonce}'{$origin}",
+            "style-src 'self' 'unsafe-inline'",
+            "img-src 'self' data:",
+            "connect-src 'self'{$origin}",
+            "frame-src 'self'{$origin}",
+        ]));
 
         return $response;
     }
@@ -153,7 +171,7 @@ The package middleware is appended to the end of the `web` group, so a middlewar
 
 ## Manual placement
 
-Set `MODUHELP_INJECT=false` and put the component in your layout, inside `<head>`:
+Set `MODUHELP_INJECT=false` and put the component in your layout, in `<head>` (or anywhere in `<body>`; the bootstrap script always adds the widget loader to `<head>`):
 
 ```blade
 <head>
@@ -164,7 +182,7 @@ Set `MODUHELP_INJECT=false` and put the component in your layout, inside `<head>
 
 The component applies the same checks as automatic injection for who sees the widget (enabled, `showWhen`, `skip()`), but not the response rules: you chose the page. If both the component and the middleware would render, only one widget appears.
 
-Inline trigger mode places its button right after the widget script, so it needs the component inside `<body>`, where you want the button. Automatic injection puts the widget in `<head>` and therefore supports the floating and custom trigger modes only.
+Trigger modes: the floating and custom modes are supported. Inline trigger mode is not supported in 0.1. The widget loader places the inline button right after its own script element, and this package always adds that script to `<head>`, wherever the component sits. A page that needs inline mode should use the plain widget snippet from the ModuHelp settings page in its body instead, and call `ModuHelp::skip()` (or match an `except` pattern) on that page so it does not get a second widget.
 
 ## Buttons
 
@@ -180,9 +198,16 @@ Any element with a `data-moduhelp-open` attribute opens the widget:
 
 ## Caching
 
-A page that carries an identity token is personal. When the package injects one, the response leaves with `Cache-Control: private, no-store` and without `ETag`, `Last-Modified` and `Content-Length`. Publicly cacheable pages are never injected, so one user's token cannot reach another through a shared cache.
+A page that carries an identity token is personal. Whenever a token was rendered on a request, whether by auto-injection or by the component, and the route is in the `web` group, the response leaves with `Cache-Control: private, no-store` (Symfony may print the directives as `no-store, private`) and without `ETag` and `Last-Modified`. This overrides a `public` or `s-maxage` the app set. `Content-Length` is dropped only when the package changed the body. A consequence: such pages are not kept by the browser back/forward cache and are not revalidated conditionally.
 
-Full-page response cache packages that store responses outside the middleware stack are incompatible with identity. Exclude signed-in pages from them.
+Auto-injection never touches a response marked `public` or `s-maxage`, so it does not add a token to a page a shared cache may store.
+
+`MODUHELP_INJECT=false` turns off injection only. The cache protection for pages that carry a token stays on.
+
+Two cases get no protection from the package, so never cache a page that contains the identity meta:
+
+- A component placed on a route outside the `web` group.
+- A page stored by a full-page response cache package that serves responses without running the middleware stack. Exclude signed-in pages from it.
 
 ## Inertia
 
@@ -192,6 +217,7 @@ A manual recipe: share the token as a prop, and hand it to the widget on every n
 
 ```php
 // app/Http/Middleware/HandleInertiaRequests.php
+use Illuminate\Http\Request;
 use ModuHelp\Laravel\Facades\ModuHelp;
 
 public function share(Request $request): array
@@ -204,7 +230,7 @@ public function share(Request $request): array
 
 ```js
 // resources/js/app.js
-import { router } from '@inertiajs/vue3' // or @inertiajs/react
+import { router } from '@inertiajs/core' // or the router exported by your Inertia adapter
 
 router.on('navigate', (event) => {
     const token = event.detail.page.props.moduhelpToken
@@ -220,7 +246,7 @@ Set `MODUHELP_INJECT=false` and place `<x-moduhelp::widget />` in your root Blad
 - The identity secret is never rendered, logged or included in exceptions. Keep it in the environment, not in the repository.
 - The widget key is public. It appears in page source by design.
 - The token and the email are never logged.
-- Tokens expire after `MODUHELP_TOKEN_TTL` seconds. Pages that carry one are not cacheable.
+- Tokens expire after `MODUHELP_TOKEN_TTL` seconds. Pages that carry one leave with `private, no-store`.
 
 ## Testing
 
