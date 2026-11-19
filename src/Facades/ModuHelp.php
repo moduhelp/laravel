@@ -18,6 +18,7 @@ use Illuminate\Support\Facades\Facade;
  * @method static Authenticatable|null user()
  * @method static bool shouldShow(Request $request)
  * @method static string|null token(?Authenticatable $user = null)
+ * @method static string|null render(Request $request)
  * @method static string|null nonce(Request $request)
  * @method static bool renderedOn(Request $request)
  * @method static bool identifiedOn(Request $request)

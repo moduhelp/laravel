@@ -123,6 +123,34 @@ class ModuHelp
         }
     }
 
+    /** Never throws into the host: a failed render yields null and sets no attribute. */
+    public function render(Request $request): ?string
+    {
+        if (! $this->shouldShow($request)) {
+            return null;
+        }
+
+        try {
+            $token = $this->token($this->user());
+
+            $html = view('moduhelp::widget', [
+                'key' => $this->config->get('moduhelp.widget_key'),
+                'origin' => $this->origin(),
+                'token' => $token,
+                'nonce' => $this->nonce($request),
+            ])->render();
+        } catch (Throwable $e) {
+            report($e);
+
+            return null;
+        }
+
+        $request->attributes->set('moduhelp.rendered', true);
+        $request->attributes->set('moduhelp.identified', $token !== null);
+
+        return $html;
+    }
+
     public function nonce(Request $request): ?string
     {
         try {
